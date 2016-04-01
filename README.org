@@ -1,0 +1,186 @@
+#+Title: Migración de node 0.10.x a 4.x.x LTS en produccion
+#+Author: Lars Jacob (@jaclar - <lars@iamat.com>)
+#+Date: <2016-03-31 Thu>
+
+* Node in Production
+| Node Version | Count | Percentage |
+|--------------+-------+------------|
+| 0.10.x       |     1 |         20 |
+| 0.12.x       |     1 |         20 |
+| io.js        |     1 |         20 |
+| 4.x LTS      |     1 |         20 |
+| 5.x Stable   |     1 |         20 |
+#+TBLFM: $3=$2*100/vsum(@2$2..@>$2)
+
+[[./lts-schedule.png]]
+* Migration
+The main challange is the API change
+** Migrating from node 0.10.x to ...
+- 0.12.x - lame!
+- 4.2.x - yes!
+- 4.4.1! - wait?! when did this happen?
+** Packeges to update
+*** Bcrypt
+A simple version bump did the trick. (thanks nan!)
+*** Redis/HiRedis
+A simple version bump did the trick. (thanks nan!)
+*** MongoDB
+The MongoDB driver was the biggest issue.
+There are 2 major releases of the MongoDB driver:
+- 2.x
+- 1.x
+
+We were still on the 1.3.x release train..
+
+- native BSON driver wouldn't compile on 4.x
+- new methods (updateOne, updateMany, etc) are introduce in 1.4.x
+
+| Driver/Node.js | 0.10.x            | 0.12.x            | 4.x                 |
+|----------------+-------------------+-------------------+---------------------|
+|      <= 1.3.15 | yes               | no (tests failed) | no (no native BSON  |
+|        ^1.4.39 | yes               | yes               | no (no native BSON) |
+|        ^2.0.39 | no (tests failed) | yes               | yes                 |
+
+Conclusion:
+
+We couldn't go straight from 0.10.x to 4.x. A short pitstop at 0.12.x was necesarry.
+The new method names helped to detect code which wasn't migrated yet.
+
+**** New Methods
+***** insert
+- insertOne
+#+BEGIN_SRC javascript
+  // before
+  db.collection("whatever")
+      .insert(data, {"w": 1}, function (err, doc) {
+
+          console.log(doc[0]._id);
+      });
+
+  // after
+  db.collection("whatever")
+      .insertOne(data, {"w": 1}, function (err, result) {
+
+          console.log(result.ops[0]._id.toString())
+       });
+#+END_SRC
+
+
+- insertMany
+#+BEGIN_SRC javascript
+  // before
+  db.collection("whatever")
+      .insert([data0, data1], {"w": 1}, function (err, doc) {
+
+          console.log(doc[0]._id);
+          console.log(doc[1]._id);
+      });
+
+  // after
+  db.collection("whatever")
+      .insertMany([data0, data1], {"w": 1}, function (err, result) {
+
+          console.log(result.ops[0]._id)
+          console.log(result.ops[1]._id)
+      });
+#+END_SRC
+***** update
+- updateOne -> Trivial
+- updateMany
+#+BEGIN_SRC javascript
+  // before
+  db.collection("whatever")
+      .update(query, update, {w:1, multi: true}, function(err, updateCount) {
+          console.log(updateCount);
+      });
+
+  // after
+  db.collection("whatever")
+      .updateMany(query, update, {w:1}, function(err, result) {
+          console.log(result.matchedCount);
+      });
+#+END_SRC
+***** remove
+- removeOne -> Trivial
+- removeMany
+#+BEGIN_SRC javascript
+  // before
+  db.collection("whatever")
+      .remove(query, {w:1, multi: true}, function(err, updateCount) {
+          console.log(updateCount);
+      });
+
+  // after
+  db.collection("whatever")
+      .removeMany(query, update, {w:1}, function(err, result) {
+          console.log(result.matchedCount);
+      });
+#+END_SRC
+** Testing
+- mocha/chai
+- Codeship for continous integration
+- indepentend staging environment for manual testing
+** Tools
+- ```n or ```nvm``` for switching node versions easily
+- update ready (https://www.npmjs.com/package/upgrade-ready)
+- ```npm outdated``` for detecting old packages
+** Results
+*** ES6 FTW
+- template strings -> great for logging
+- const/let
+=> Arrow Functions!
+- all the other ES6 goodness
+*** v8's better memory managment
+Memory usage drop 0.12.x to 4.2.x
+[[./memory-short.png]]
+
+Memory profile 0.10.x -> 0.12.x -> 4.2.x
+[[./memory-long.png]]
+*** v8's performance improvements
+@thlorenz run some nice benchmarks on node 0.10, 0.12 vs. io.js
+http://thlorenz.com/benchgraph/#linux-arrays
+*** Ready for the future!
+- Node from 4.x onwards has a much more stable and predictable release train.
+- Hopefully we won't have to go through such an major update again.
+** References
+- http://dschenkelman.github.io/2015/11/09/my-experience-migrating-to-node-4-x/
+- http://mongodb.github.io/node-mongodb-native/2.0/meta/changes-from-1.0/
+* Monitoring
+** What to measure?
+*** OS Specific
+- CPU (System vs. User)
+- Memory
+- Network (in/out)
+- Disk I/O ?
+*** App Metrics
+- request count/througput
+- response time (internal/external)
+- log aggregation
+- Event Loop
+- Custom App Metrics
+*** Database
+- Query types
+- Queries per second
+- Slow queries
+** Tooling
+*** Logging
+- Papertrail
+- Google Cloud Logging
+- Bigquery
+*** Graphing
+- Librato
+- Google Cloud Monitoring
+*** App performance
+- New Relic with custom metrics
+https://docs.newrelic.com/docs/agents/nodejs-agent/supported-features/nodejs-custom-instrumentation
+- Opbeat (getting better)
+** Cool Ideas/Recomendations
+- Graph your logs!
+- View your graphs daily!
+- Use Data Science to detect anomalies (https://medium.com/@iliasfl/data-science-tricks-simple-anomaly-detection-for-metrics-with-a-weekly-pattern-2e236970d77#.1ozh3pxqf)
+- NSolid works now with Google App Engine
+* Any Questsions?
+
+Twitter: @jaclar
+   Lars Jacob
+  - I am at -
